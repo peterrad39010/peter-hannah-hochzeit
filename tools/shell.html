@@ -54,26 +54,36 @@ button[disabled]{opacity:.6;cursor:wait}
   function load(){ try{ return localStorage.getItem(KEY); }catch(e){ return null; } }
   function forget(){ try{ localStorage.removeItem(KEY); }catch(e){} }
   async function open(code){
-    var enc=new TextEncoder();
-    var base=await crypto.subtle.importKey('raw',enc.encode(norm(code)),'PBKDF2',false,['deriveKey']);
-    var key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(blob.s),iterations:blob.n,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
-    var plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(blob.i)},key,b64(blob.c));
-    return new TextDecoder().decode(plain);
+    var enc=new TextEncoder(), base=await crypto.subtle.importKey('raw',enc.encode(norm(code)),'PBKDF2',false,['deriveKey']);
+    for(var j=0;j<blob.w.length;j++){
+      var w=blob.w[j], kk;
+      try{
+        var wk=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(w.s),iterations:blob.n,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+        kk=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(w.i)},wk,b64(w.c)));
+      }catch(e){ continue; }
+      var key=await crypto.subtle.importKey('raw',kk.slice(0,32),'AES-GCM',false,['decrypt']);
+      var plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(blob.i)},key,b64(blob.c));
+      return { html:new TextDecoder().decode(plain), art:new TextDecoder().decode(kk.slice(32)) };
+    }
+    throw new Error('code');
   }
-  function show(html){ document.open(); document.write(html); document.close(); }
+  function show(r){
+    try{ localStorage.setItem('hp_k',r.art); history.replaceState(null,'',location.pathname+'?k='+encodeURIComponent(r.art)+location.hash); }catch(e){}
+    document.open(); document.write(r.html); document.close();
+  }
   var gate=document.getElementById('gate'), f=document.getElementById('f'), msg=document.getElementById('msg'), btn=f.querySelector('button');
   // Code aus dem QR-Link (#z=…) übernehmen und sofort aus der Adresszeile entfernen
   var fromLink=null, m=location.hash.match(/(?:^#|&)z=([^&]+)/);
-  if(m){ fromLink=decodeURIComponent(m[1]); try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){} }
+  if(m){ fromLink=decodeURIComponent(m[1]); try{ history.replaceState(null,'',location.pathname); }catch(e){} }
   var tryCode=fromLink||load();
   if(!window.crypto||!crypto.subtle){ gate.hidden=false; msg.textContent='Bitte öffnet die Seite in einem aktuellen Browser.'; return; }
   if(tryCode){
-    open(tryCode).then(function(h){ store(tryCode); show(h); }).catch(function(){ forget(); gate.hidden=false; });
+    open(tryCode).then(function(r){ store(tryCode); show(r); }).catch(function(){ forget(); gate.hidden=false; });
   } else { gate.hidden=false; }
   f.addEventListener('submit',function(e){
     e.preventDefault(); var c=f.code.value; if(!c.trim()) return;
     btn.disabled=true; msg.textContent='Einen Moment …';
-    open(c).then(function(h){ store(c); show(h); }).catch(function(){
+    open(c).then(function(r){ store(c); show(r); }).catch(function(){
       btn.disabled=false; msg.textContent='Dieser Code stimmt leider nicht. Ihr findet ihn auf eurer Einladung.'; f.code.select();
     });
   });
