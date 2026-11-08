@@ -12,7 +12,7 @@ Rückmeldeformular zugleich die Einladungsart (Einzel oder Paar).
 
 Die Quelle (lesbares HTML mit eingebetteten Fotos) gehört NICHT ins Repo.
 Verfahren: zufälliger Inhaltsschlüssel (AES-256-GCM); dieser wird für jeden Code
-mit einem per PBKDF2-HMAC-SHA256 (600 000 Runden) abgeleiteten Schlüssel verpackt.
+mit einem per PBKDF2-HMAC-SHA256 (600 000 Runden, gemeinsames Salz) abgeleiteten Schlüssel verpackt.
 Codes werden vereinfacht: Kleinbuchstaben, ohne Leerzeichen und Bindestriche.
 """
 import base64, json, os, re, sys
@@ -33,13 +33,12 @@ def kdf(code, salt):
 
 def seal(src, dst, codes):
     plain = open(src, 'rb').read()
-    k, iv = AESGCM.generate_key(256), os.urandom(12)
+    k, iv, salt = AESGCM.generate_key(256), os.urandom(12), os.urandom(16)
     wraps = []
     for art, code in codes:
-        salt, wiv = os.urandom(16), os.urandom(12)
-        wraps.append({'s': b64(salt), 'i': b64(wiv),
-                      'c': b64(AESGCM(kdf(code, salt)).encrypt(wiv, k + art.encode(), None))})
-    blob = json.dumps({'n': ITER, 'i': b64(iv), 'c': b64(AESGCM(k).encrypt(iv, plain, None)), 'w': wraps})
+        wiv = os.urandom(12)
+        wraps.append({'i': b64(wiv), 'c': b64(AESGCM(kdf(code, salt)).encrypt(wiv, k + art.encode(), None))})
+    blob = json.dumps({'n': ITER, 's': b64(salt), 'i': b64(iv), 'c': b64(AESGCM(k).encrypt(iv, plain, None)), 'w': wraps})
     shell = open(os.path.join(HERE, 'shell.html'), encoding='utf-8').read()
     open(dst, 'w', encoding='utf-8').write(
         shell.replace('<!--SEALED-->', '<script id="sealed" type="application/json">' + blob + '</script>'))
@@ -47,9 +46,10 @@ def seal(src, dst, codes):
 def unseal(src, dst, code):
     blob = json.loads(MARK.search(open(src, encoding='utf-8').read()).group(1))
     d = base64.b64decode
+    wk = kdf(code, d(blob['s']))
     for w in blob['w']:
         try:
-            kk = AESGCM(kdf(code, d(w['s']))).decrypt(d(w['i']), d(w['c']), None)
+            kk = AESGCM(wk).decrypt(d(w['i']), d(w['c']), None)
         except Exception:
             continue
         open(dst, 'wb').write(AESGCM(kk[:32]).decrypt(d(blob['i']), d(blob['c']), None))

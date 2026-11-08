@@ -30,9 +30,19 @@ button:focus-visible{outline:2px solid #a8843f;outline-offset:3px}
 button[disabled]{opacity:.6;cursor:wait}
 .msg{min-height:1.6em;margin:18px 0 0;font:italic 400 19px "Cormorant Garamond",Georgia,serif;color:#3d3329}
 .hint{font-size:13px;color:#6d6558;margin-top:28px}
+.loading{text-align:center}
+.loading h1{opacity:.9}
+.loading p{font:italic 400 19px "Cormorant Garamond",Georgia,serif;color:#86662a;margin-top:22px;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.loading p{animation:none}}
 </style>
+<noscript><style>.loading{display:none}</style></noscript>
 </head>
 <body>
+<div class="loading" id="loading" aria-live="polite">
+  <h1>Hannah<span>&amp;</span>Peter</h1>
+  <p>Einen Moment, die Seite wird geöffnet …</p>
+</div>
 <main class="gate" id="gate" hidden>
   <h1>Hannah<span>&amp;</span>Peter</h1>
   <p class="date">28. August 2027 · Graz</p>
@@ -55,12 +65,10 @@ button[disabled]{opacity:.6;cursor:wait}
   function forget(){ try{ localStorage.removeItem(KEY); }catch(e){} }
   async function open(code){
     var enc=new TextEncoder(), base=await crypto.subtle.importKey('raw',enc.encode(norm(code)),'PBKDF2',false,['deriveKey']);
+    var wk=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(blob.s),iterations:blob.n,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
     for(var j=0;j<blob.w.length;j++){
       var w=blob.w[j], kk;
-      try{
-        var wk=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(w.s),iterations:blob.n,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
-        kk=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(w.i)},wk,b64(w.c)));
-      }catch(e){ continue; }
+      try{ kk=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(w.i)},wk,b64(w.c))); }catch(e){ continue; }
       var key=await crypto.subtle.importKey('raw',kk.slice(0,32),'AES-GCM',false,['decrypt']);
       var plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(blob.i)},key,b64(blob.c));
       return { html:new TextDecoder().decode(plain), art:new TextDecoder().decode(kk.slice(32)) };
@@ -76,10 +84,11 @@ button[disabled]{opacity:.6;cursor:wait}
   var fromLink=null, m=location.hash.match(/(?:^#|&)z=([^&]+)/);
   if(m){ fromLink=decodeURIComponent(m[1]); try{ history.replaceState(null,'',location.pathname); }catch(e){} }
   var tryCode=fromLink||load();
-  if(!window.crypto||!crypto.subtle){ gate.hidden=false; msg.textContent='Bitte öffnet die Seite in einem aktuellen Browser.'; return; }
+  var loading=document.getElementById('loading');
+  if(!window.crypto||!crypto.subtle){ loading.hidden=true; gate.hidden=false; msg.textContent='Bitte öffnet die Seite in einem aktuellen Browser.'; return; }
   if(tryCode){
-    open(tryCode).then(function(r){ store(tryCode); show(r); }).catch(function(){ forget(); gate.hidden=false; });
-  } else { gate.hidden=false; }
+    open(tryCode).then(function(r){ store(tryCode); show(r); }).catch(function(){ forget(); loading.hidden=true; gate.hidden=false; });
+  } else { loading.hidden=true; gate.hidden=false; }
   f.addEventListener('submit',function(e){
     e.preventDefault(); var c=f.code.value; if(!c.trim()) return;
     btn.disabled=true; msg.textContent='Einen Moment …';
